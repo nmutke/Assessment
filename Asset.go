@@ -6,17 +6,18 @@ import (
 	"log"
 	"time"
 
+	"github.com/golang/protobuf/ptypes"
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
 
-type SmartContract struct (
+type SmartContract struct {
 	contractapi.Contract
-)
+}
 
 type Asset struct {
-	Id		string	`json:"Id"`
-	Owner	string	`json:"owner"`
-	Price	int		`json:"price"`	
+	Id             string `json:"Id"`
+	Owner          string `json:"Owner"`
+	Price          int    `json:"Price"`
 }
 
 type HistoryResult struct {
@@ -33,7 +34,7 @@ type PaginatedResult struct {
 }
 
 // Check Existing Asset
-func (s *SmartContract) IsExists(ctx contractapi.TransactionContextInterface, id string) (bool, err) {
+func (s *SmartContract) IsExists(ctx contractapi.TransactionContextInterface, id string) (bool, error) {
   
 	assetJson, err := ctx.GetStub().GetState(id)
   	if err != nil {
@@ -57,11 +58,11 @@ func (s *SmartContract) CreateAsset(ctx contractapi.TransactionContextInterface,
 	asset := Asset {
 		Id:		id,
 		Owner: 	owner,
-		Price: 	price
+		Price: 	price,
 	}
 
 	assetJson, err := json.Marshal(asset)
-	if err != nill {
+	if err != nil {
 		return err
 	}
 
@@ -84,80 +85,35 @@ func (s *SmartContract) DeleteAsset(ctx contractapi.TransactionContextInterface,
 
 // Update an Asset
 func (s *SmartContract) UpdateAsset(ctx contractapi.TransactionContextInterface, id string, owner string, price int) error {
-	
-	currentTimestamp := time.Now().Unix()
-
-	assetJson, err := ctx.GetStub().GetState(id)
+		
+	isExists, err := s.IsExists(ctx, id)
 	if err != nil {
-		return nil
+		return err
+	}
+	if !isExists {
+		return fmt.Errorf("Asset %s does not exist", id)
 	}
 
-	creationTimestamp := parseCreationTimestamp(assetJson)
-
-	timeLimit := 5 * 60
-	if currentTimestamp-creationTimestamp > timeLimit {
-		return fmt.Errorf("Asset update not allowed after 5 minutes of creation time")
+	asset := Asset{
+		Id:             id,
+		Owner:          owner,
+		Price: 			price,
 	}
-	
-	checkAsset := &Asset{}
-	err := json.Unmarshal(assetJson, checkAsset)
+	assetJSON, err := json.Marshal(asset)
 	if err != nil {
 		return err
 	}
 
-	if asset.Owner != owner {
-		return fmt.Errorf("Only the owner can update the asset")
-	}
-
-	asset := Asset {
-		Id:		id,
-		Owner: 	owner,
-		Price: 	price
-	}	
-
-	assetJson, err := josn.Marshal(asset)
-	if err != nil {
-		return err
-	}
-	
-	return ctx.GetStub().PutState(id, assetJson)
+	return ctx.GetStub().PutState(id, assetJSON)
 }
 
-func (s *SmartContract) getAssetWithPagination(ctx contractapi.TransactionContextInterface, id string, pageSize int) (*PaginatedResult, error) {
-
-	resultIterator, responseMetadata, err := ctx.GetStub().GetQueryResultWithPagination(id, pageSize, bookmark)
-	if err != nil {
-		return nil, err
-	}
-	defer resultIterator.Close()
-
-	var assets []*Asset
-	for resultIterator.HasNext() {
-		queryResult, err := resultIterator.Next()
-		if err != nil {
-			return nil, err
-		}
-		var asset Asset
-		err = json.Unmarshal(queryResult.Value, &asset)
-		if err != nil {
-			return nil, err
-		}
-		assets = append(assets, &asset)
-	}
-
-	return &PaginatedResult{
-		Records:				assets,
-		FetchedRecordsCount:	responseMetadata.FetchedRecordsCount,
-		Bookmark:				responseMetadata.Bookmark
-	}, nil
-}
 
 // Get History of an Asset
-func (s *SmartContract) getHistoryofAsset(ctx contractapi.TransactionContextInterface, id string) (string, error) {
+func (s *SmartContract) getHistoryofAsset(ctx contractapi.TransactionContextInterface, id string) ([]HistoryResult, error) {
 	
 	resultIterator, err := ctx.GetStub().GetHistoryForKey(id)
 	if err != nil {
-		return "", fmt.Errorf(err.Error())
+		return nil, fmt.Errorf(err.Error())
 	}
 	defer resultIterator.Close()
 
@@ -176,7 +132,7 @@ func (s *SmartContract) getHistoryofAsset(ctx contractapi.TransactionContextInte
 			}
 		} else {
 			asset = Asset{
-				ID: assetID,
+				Id: id,
 			}
 		}
 
